@@ -1,4 +1,4 @@
-# PRISM - OpenClaw Research Intelligence
+# PRISM - Full Stack Research Intelligence
 
 PRISM is a full-stack research intelligence MVP built for the OpenClaw hackathon. It ingests research and innovation signals from multiple sources, links related work, stores semantic memory, scores each item with specialized engines, and presents a polished command-center dashboard for discovery, comparison, chat, and cross-domain opportunity analysis.
 
