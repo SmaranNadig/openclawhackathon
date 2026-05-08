@@ -1,4 +1,5 @@
 import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -14,6 +15,7 @@ from app.ingest.mock_social_adapter import MockJobsAdapter, MockProductLaunchAda
 from app.ingest.news_adapter import NewsAdapter
 from app.ingest.openalex_adapter import OpenAlexAdapter
 from app.ingest.papers_with_code_adapter import PapersWithCodeAdapter
+from app.ingest.semantic_scholar_adapter import SemanticScholarAdapter
 from app.ingest.normalizer import normalize_many
 from app.ingest.seed_data import demo_raw_items
 from app.memory.entity_linker import EntityLinker
@@ -32,6 +34,7 @@ class IngestionPipeline:
         self.adapters = [
             ArxivAdapter(),
             OpenAlexAdapter(),
+            SemanticScholarAdapter(),
             CrossrefAdapter(settings.crossref_mailto),
             GitHubAdapter(settings.github_token),
             HuggingFaceAdapter(settings.huggingface_token),
@@ -51,17 +54,25 @@ class IngestionPipeline:
         if include_demo:
             logger.info(f"📦 Loaded {len(raw_items)} fallback demo items.")
             
-        for adapter in self.adapters:
-            logger.info(f"📡 Fetching from {adapter.source_name}...")
-            try:
-                fetched = adapter.fetch(query=query, limit=limit_per_source)
-                raw_items.extend(fetched)
-                if fetched:
-                    logger.info(f"   ✅ {adapter.source_name} returned {len(fetched)} items.")
-                else:
-                    logger.info(f"   ➖ {adapter.source_name} returned 0 items.")
-            except Exception as e:
-                logger.error(f"   ❌ Error fetching from {adapter.source_name}: {e}")
+        logger.info(f"📡 Fetching from {len(self.adapters)} sources in parallel...")
+        
+        with ThreadPoolExecutor(max_workers=len(self.adapters)) as executor:
+            future_to_adapter = {
+                executor.submit(adapter.fetch, query=query, limit=limit_per_source): adapter 
+                for adapter in self.adapters
+            }
+            
+            for future in as_completed(future_to_adapter):
+                adapter = future_to_adapter[future]
+                try:
+                    fetched = future.result()
+                    raw_items.extend(fetched)
+                    if fetched:
+                        logger.info(f"   ✅ {adapter.source_name} returned {len(fetched)} items.")
+                    else:
+                        logger.info(f"   ➖ {adapter.source_name} returned 0 items.")
+                except Exception as e:
+                    logger.error(f"   ❌ Error fetching from {adapter.source_name}: {e}")
 
         before_filter = len(raw_items)
         raw_items = [item for item in raw_items if self._matches_query(item, query)]
@@ -275,6 +286,8 @@ class IngestionPipeline:
         metadata = raw_item.get("metadata") or {}
         haystack_parts = [
             raw_item.get("title", ""),
+            raw_item.get("topic", ""),
+            raw_item.get("source", ""),
             raw_item.get("abstract", ""),
             raw_item.get("summary", ""),
             raw_item.get("description", ""),

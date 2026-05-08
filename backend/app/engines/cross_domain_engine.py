@@ -151,27 +151,12 @@ def _best_technique(blob: str) -> tuple[str | None, float]:
 class CrossDomainEngine:
     """
     Scores a ResearchItem on its cross-domain transfer potential.
-
-    Scoring philosophy
-    ------------------
-    Four independent signals are computed and linearly combined with
-    fixed weights (see _W_* constants above).  Each signal is in [0, 1].
-
-    1. domain_pair_score  — how confidently we can identify a source domain
-                            AND a distinct target domain.
-    2. technique_score    — presence of a known transferable technique,
-                            scaled by that technique's transferability weight.
-    3. related_score      — fraction of related papers that independently show
-                            cross-domain signals beyond the source domain.
-    4. density_score      — how many distinct domains appear in the text,
-                            rewarding papers with genuinely broad scope.
     """
 
-    def score(self, item: ResearchItem, related_items: list[ResearchItem]) -> EngineResult:
+    def score(self, item: ResearchItem, related_items: list[ResearchItem], skip_llm: bool = False) -> EngineResult:
         metadata = item.extra_metadata or {}
         blob = _normalize(text_blob(item))
 
-        # ── 1. Determine source / target domains ────────────────────────────
         source_domain: str | None = metadata.get("source_domain")
         target_domain: str | None = metadata.get("target_domain")
         explicit_domains = bool(source_domain and target_domain)
@@ -182,54 +167,37 @@ class CrossDomainEngine:
         if not source_domain and ranked_domains:
             source_domain = ranked_domains[0][0]
         if not target_domain:
-            # Pick the highest-scoring domain that is different from source
             for domain, _ in ranked_domains:
                 if domain != source_domain:
                     target_domain = domain
                     break
 
-        # domain_pair_score: reward distinct source+target, penalise overlap
+        domain_pair_score = 0.0
         if explicit_domains:
             domain_pair_score = 1.0
         elif source_domain and target_domain and source_domain != target_domain:
-            # Scale by how strong both domain signals are
             src_s = domain_scores.get(source_domain, 0.0)
             tgt_s = domain_scores.get(target_domain, 0.0)
             domain_pair_score = (src_s + tgt_s) / 2.0
-        else:
-            domain_pair_score = 0.0
 
-        # ── 2. Technique ────────────────────────────────────────────────────
         technique: str | None = metadata.get("technique")
         technique_weight = 0.0
         if not technique:
             technique, technique_weight = _best_technique(blob)
         else:
-            # Explicit metadata — look up its weight or give a baseline
             technique_weight = TECHNIQUE_SPECS.get(technique.lower(), 0.6)
 
-        technique_score = technique_weight  # already in [0, 1]
-
-        # ── 3. Related-item corroboration ───────────────────────────────────
         related_cross_domain_count = 0
         for related in related_items:
             related_blob = _normalize(text_blob(related))
             related_ranked = _rank_domains(related_blob)
             related_domain_names = {d for d, s in related_ranked if s > 0.15}
-            # A related item is a real corroborator only if it spans ≥2 domains
-            # AND at least one domain differs from the item's source domain.
-            if len(related_domain_names) >= 2 and source_domain not in related_domain_names or (
-                source_domain in related_domain_names and len(related_domain_names) >= 2
-                and any(d != source_domain for d in related_domain_names)
-            ):
+            if len(related_domain_names) >= 2 and (source_domain not in related_domain_names or any(d != source_domain for d in related_domain_names)):
                 related_cross_domain_count += 1
 
         related_score = min(related_cross_domain_count / max(len(related_items), 1), 1.0)
-
-        # ── 4. Density — breadth of domain signals in the text ──────────────
-        # Count distinct domains with a non-trivial signal (>0.1)
         active_domains = [d for d, s in ranked_domains if s > 0.1]
-        density_score = min(len(active_domains) / 4.0, 1.0)  # 4+ domains → full score
+        density_score = min(len(active_domains) / 4.0, 1.0)
         domain_score_details = [
             {"domain": domain, "score": round(domain_score, 3)}
             for domain, domain_score in ranked_domains
@@ -245,71 +213,45 @@ class CrossDomainEngine:
             if value
         ]
 
-        # ── 5. Composite score ───────────────────────────────────────────────
         score = clamp(
             _W_DOMAIN_PAIR * domain_pair_score
-            + _W_TECHNIQUE  * technique_score
+            + _W_TECHNIQUE  * technique_weight
             + _W_RELATED    * related_score
             + _W_DENSITY    * density_score
         )
 
-        # ── 6. Evidence ─────────────────────────────────────────────────────
         evidence: list[str] = []
-
         if source_domain and target_domain:
-            label = "Explicit" if explicit_domains else "Inferred"
-            src_pct = f"{domain_scores.get(source_domain, 0):.0%}"
-            tgt_pct = f"{domain_scores.get(target_domain, 0):.0%}"
-            evidence.append(
-                f"{label} transfer path: {source_domain} ({src_pct} signal) "
-                f"→ {target_domain} ({tgt_pct} signal)."
-            )
-
+            evidence.append(f"Transfer path: {source_domain} → {target_domain}.")
         if technique:
-            evidence.append(
-                f"Transferable technique: '{technique}' "
-                f"(transferability weight: {technique_weight:.2f})."
-            )
-
+            evidence.append(f"Transferable technique: '{technique}'.")
         if active_domains:
-            evidence.append(
-                f"Domain breadth: {len(active_domains)} active domain(s) detected "
-                f"({', '.join(active_domains)})."
-            )
-
-        if related_cross_domain_count:
-            evidence.append(
-                f"{related_cross_domain_count}/{len(related_items)} related items show "
-                "independent cross-domain signals."
-            )
-
+            evidence.append(f"Domain breadth: {len(active_domains)} domains detected.")
         if not evidence:
-            evidence.append("No strong cross-domain transfer signal found in the current corpus.")
+            evidence.append("No strong cross-domain transfer signal found.")
 
-        # ── 7. Verdict ───────────────────────────────────────────────────────
         if score >= 0.72:
-            verdict = "Strong cross-domain spark with a plausible, well-supported transfer mechanism."
+            verdict = "Strong cross-domain spark."
         elif score >= 0.45:
-            verdict = "Moderate cross-domain opportunity — transfer path exists but needs validation."
-        elif score >= 0.2:
-            verdict = "Weak cross-domain signal — domain hints present but technique or target unclear."
+            verdict = "Moderate cross-domain opportunity."
         else:
-            verdict = "Low cross-domain transfer signal in the current corpus."
+            verdict = "Low cross-domain transfer signal."
 
-        verdict, evidence = enhance_verdict(
-            engine_name="CrossDomainEngine",
-            heuristic_verdict=verdict,
-            heuristic_score=score,
-            item_title=item.title,
-            item_abstract=item.abstract or "",
-            evidence_points=evidence,
-            extra_context=(
-                f"source_domain={source_domain}, target_domain={target_domain}, "
-                f"technique={technique}, domain_pair_score={domain_pair_score:.3f}, "
-                f"technique_score={technique_score:.3f}, related_score={related_score:.3f}, "
-                f"density_score={density_score:.3f}"
-            ),
-        )
+        if not skip_llm:
+            verdict, evidence = enhance_verdict(
+                engine_name="CrossDomainEngine",
+                heuristic_verdict=verdict,
+                heuristic_score=score,
+                item_title=item.title,
+                item_abstract=item.abstract or "",
+                evidence_points=evidence,
+                extra_context=(
+                    f"source_domain={source_domain}, target_domain={target_domain}, "
+                    f"technique={technique}, domain_pair_score={domain_pair_score:.3f}, "
+                    f"technique_score={technique_weight:.3f}, related_score={related_score:.3f}, "
+                    f"density_score={density_score:.3f}"
+                ),
+            )
 
         return EngineResult(
             score=round(score, 4),
@@ -321,7 +263,7 @@ class CrossDomainEngine:
                 "technique": technique,
                 "technique_weight": round(technique_weight, 3),
                 "domain_pair_score": round(domain_pair_score, 3),
-                "technique_score": round(technique_score, 3),
+                "technique_score": round(technique_weight, 3),
                 "related_score": round(related_score, 3),
                 "density_score": round(density_score, 3),
                 "active_domains": active_domains,
@@ -334,6 +276,5 @@ class CrossDomainEngine:
             },
         )
 
-    # kept for external callers that may use it directly
     def _infer_domains(self, blob: str) -> list[str]:
         return [d for d, _ in _rank_domains(_normalize(blob))]

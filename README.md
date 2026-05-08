@@ -1,101 +1,100 @@
-# PRISM
+# PRISM - OpenClaw Research Intelligence
 
-PRISM is a lightweight hackathon MVP for a research intelligence platform that ingests research and innovation signals, links related entities, stores lightweight memory, and exposes stable APIs for trust scoring, contradiction mining, adoption-gap analysis, cross-domain discovery, and frontend reporting.
+PRISM is a full-stack research intelligence MVP built for the OpenClaw hackathon. It ingests research and innovation signals from multiple sources, links related work, stores semantic memory, scores each item with specialized engines, and presents a polished command-center dashboard for discovery, comparison, chat, and cross-domain opportunity analysis.
 
-## Current Status
+## Problem
 
-This repository currently contains a full-stack PRISM MVP:
+Research teams, founders, and product builders are flooded with papers, repositories, model releases, benchmarks, and industry signals. The hard part is not finding one paper; it is knowing which ideas are novel, trustworthy, contested, under-adopted, and transferable to another domain.
 
-- FastAPI backend
-- SQLite persistence
-- SQLAlchemy data models
-- Pydantic API schemas
-- arXiv, GitHub, Hugging Face, RSS/news, mock social, and mock jobs ingestion adapters
-- Semantic Scholar, Crossref, optional Papers With Code, engineering blog RSS, and mock product launch adapters
-- Normalization pipeline
-- Entity linking
-- Lightweight local vector-memory fallback
-- Demo seed data
-- Five intelligence engines and real fusion scoring
-- Always-on lightweight research agent with APScheduler
-- React/Vite/Tailwind command-center dashboard
-- Markdown weekly report export
+PRISM turns noisy research streams into ranked, explainable intelligence.
 
-Future work should focus on channel delivery, richer source adapters, and optional OpenClaw-style orchestration.
+## What It Does
 
-## Repository Layout
+- Pulls research signals from multiple sources in one pipeline run.
+- Normalizes papers, repositories, models, news, engineering blogs, and demo market signals into one schema.
+- Links related items with lightweight entity and topic matching.
+- Stores items in SQLite and indexes semantic memory with Chroma or a local fallback.
+- Runs five scoring engines:
+  - Signal Engine: novelty, traction, recency, and attention.
+  - Trust Engine: reproducibility, code, datasets, benchmarks, and credible metadata.
+  - Debate Engine: contradiction, replication risk, and contested claims.
+  - Gap Engine: academic momentum versus industry adoption.
+  - Cross-Domain Engine: source-to-target transfer paths and domain breadth.
+- Fuses engine scores into a PRISM score with evidence.
+- Uses Groq first and local Ollama fallback for concise LLM reasoning when enabled.
+- Provides a React dashboard with source mix, rankings, evidence trace, cross-domain radar, adoption-gap atlas, persona suggestions, and paper chat.
+- Includes an OpenClaw-style agent loop for monitoring, routing, and alerts.
+
+## Live Data Sources
+
+The ingestion pipeline fans out across these adapters and continues even if one source returns no results:
+
+- arXiv
+- OpenAlex
+- Semantic Scholar
+- Crossref
+- GitHub
+- Hugging Face
+- Papers With Code
+- News RSS feeds
+- Engineering blog RSS feeds
+- Mock social, jobs, and product-launch signals for demo coverage
+
+## Tech Stack
+
+Backend:
+
+- FastAPI
+- SQLAlchemy
+- SQLite
+- Pydantic
+- ChromaDB with local vector-memory fallback
+- Groq API and Ollama fallback
+- APScheduler for the optional agent heartbeat
+
+Frontend:
+
+- React
+- Vite
+- TypeScript
+- Tailwind CSS
+- Recharts
+- Framer Motion
+- Lucide icons
+
+## Repository Structure
 
 ```text
 backend/
   app/
-    api/
-      routes_analysis.py
-      routes_health.py
-      routes_items.py
-      routes_memory.py
-      routes_pipeline.py
-      routes_reports.py
-    agent/
-      channel_dispatcher.py
-      heartbeat.py
-      router.py
-      soul_profile.py
-      soul_profile.yaml
-      state.py
-      tools.py
-    core/
-      config.py
-    db/
-      init_db.py
-      models.py
-      session.py
-    ingest/
-      arxiv_adapter.py
-      base.py
-      crossref_adapter.py
-      engineering_blog_adapter.py
-      github_adapter.py
-      huggingface_adapter.py
-      mock_social_adapter.py
-      news_adapter.py
-      normalizer.py
-      papers_with_code_adapter.py
-      semantic_scholar_adapter.py
-      pipeline.py
-      seed_data.py
-    memory/
-      entity_linker.py
-      vector_store.py
-    engines/
-      signal_engine.py
-      trust_engine.py
-      debate_engine.py
-      gap_engine.py
-      cross_domain_engine.py
-      fusion_engine.py
-    reports/
-      markdown_report.py
-    schemas/
-      research.py
-    main.py
-  .env.example
+    api/          FastAPI routes
+    agent/        OpenClaw-style routing and heartbeat agent
+    core/         settings and environment config
+    db/           SQLAlchemy models and session setup
+    engines/      scoring and fusion engines
+    ingest/       source adapters and ingestion pipeline
+    memory/       entity linking and vector memory
+    reports/      markdown report export
+    schemas/      Pydantic contracts
+    main.py       FastAPI app entrypoint
   requirements.txt
+
 frontend/
   src/
-    App.tsx
-    api/
-    components/
+    api/          typed API client and fallback data
+    components/   dashboard components
+    App.tsx       main command-center UI
   package.json
-docs/
-  TEAM_HANDOFF_AND_COMPLETION_PROMPT.md
-  EXPANSION_OPENCLAW_PROMPTS.md
+
+README.md
 ```
 
-## Backend Setup
+## Quick Start
 
-From the `backend` directory:
+### 1. Backend
 
 ```bash
+cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -103,51 +102,154 @@ copy .env.example .env
 uvicorn app.main:app --reload
 ```
 
-Open:
+Backend URLs:
 
 - API docs: `http://localhost:8000/docs`
 - Health check: `http://localhost:8000/health`
 
-## Frontend Setup
-
-From the `frontend` directory:
+### 2. Frontend
 
 ```bash
+cd frontend
 npm install
 copy .env.example .env
 npm run dev
 ```
 
-Open:
+Frontend URL:
 
 - Dashboard: `http://localhost:5173`
 
-The frontend has fallback demo data, so it renders even if the backend is not running. Start the backend and click `Run PRISM` to use live SQLite/API data.
+The frontend includes fallback demo data, so it still renders if the backend is offline. Start the backend and press the run button in the UI to ingest live results.
 
-## First Demo Run
+## Environment Variables
 
-After starting the backend, call:
+Backend variables live in `backend/.env`.
 
-```bash
-curl -X POST "http://localhost:8000/api/run-pipeline?query=multimodal%20agents&include_demo=true"
+Important values:
+
+```env
+DATABASE_URL=sqlite:///./prism.db
+ENABLE_LLM=true
+LLM_API_KEY=your_groq_key_here
+LLM_MODEL=llama-3.1-8b-instant
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=gemma3:latest
+GITHUB_TOKEN=
+HUGGINGFACE_TOKEN=
+SEMANTIC_SCHOLAR_API_KEY=
+CROSSREF_MAILTO=
+NEWS_RSS_FEEDS=https://www.technologyreview.com/feed/,https://venturebeat.com/category/ai/feed/
+ENGINEERING_BLOG_RSS_FEEDS=https://netflixtechblog.com/feed,https://engineering.fb.com/feed/,https://aws.amazon.com/blogs/machine-learning/feed/
+ENABLE_SCHEDULER=false
 ```
 
-Then inspect:
+Frontend variables live in `frontend/.env`.
+
+```env
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+Do not commit real API keys. `.env` is ignored by git.
+
+## Demo Flow
+
+Use a broad query so multiple sources can contribute:
+
+```text
+multimodal agents benchmark tool use
+```
+
+or:
+
+```text
+graph neural networks drug discovery supply chain optimization
+```
+
+Then:
+
+1. Start backend and frontend.
+2. Enter the query in the dashboard.
+3. Click the pipeline run button.
+4. Review:
+   - source mix chart
+   - ranked research queue
+   - PRISM score cards
+   - evidence panel
+   - adoption-gap atlas
+   - cross-domain radar
+   - paper chat
+
+CLI demo:
+
+```bash
+curl -X POST "http://localhost:8000/api/run-pipeline?query=multimodal%20agents%20benchmark%20tool%20use&limit_per_source=5&include_demo=false"
+curl "http://localhost:8000/api/items?limit=20&q=multimodal%20agents"
+curl "http://localhost:8000/api/analysis/fusion-reports?limit=20&q=multimodal%20agents&refresh=true"
+```
+
+## Core API Endpoints
+
+Pipeline:
+
+- `POST /api/run-pipeline`
+
+Items and memory:
 
 - `GET /api/items`
 - `GET /api/items/{item_id}`
-- `GET /api/memory/search?q=multimodal%20agents`
+- `GET /api/memory/search`
 - `GET /api/memory/links`
+
+Analysis:
+
 - `GET /api/analysis/fusion-reports`
+- `GET /api/analysis/fusion-reports/{item_id}`
+- `POST /api/analysis/run-engines`
+- `GET /api/analysis/engine-runs/{item_id}`
+
+Chat and reports:
+
+- `POST /api/chat`
+- `POST /api/chat/debate`
 - `GET /api/reports/weekly.md`
+
+Agent:
+
+- `GET /api/agent/status`
+- `POST /api/agent/run-once`
+- `GET /api/agent/alerts`
+- `GET /api/agent/profile`
+
+## Scoring Model
+
+PRISM computes a fused score from five independent signals:
+
+```text
+PRISM =
+  0.25 * Signal
++ 0.25 * Trust
++ 0.15 * (1 - Debate)
++ 0.20 * Gap
++ 0.15 * CrossDomain
+```
+
+Each engine returns:
+
+- `score`
+- `verdict`
+- `evidence`
+- `details`
+
+Cross-domain details include domain scores, active domains, candidate topics, and source-to-target transfer paths for the radar visualization.
 
 ## OpenClaw-Style Agent
 
-PRISM includes a lightweight OpenClaw-style agent layer. It uses PRISM's existing ingestion, memory, and engine modules as tools, then applies a SOUL profile for orchestration, alert thresholds, report routing, and channel delivery. It is disabled by default so local development stays quiet.
+PRISM includes a lightweight agent layer that can run as part of the FastAPI process. It uses the same ingestion, memory, and engine modules as tools, then applies a SOUL profile for alert routing.
 
-To enable it, set these values in `backend/.env`:
+Enable it in `backend/.env`:
 
-```bash
+```env
 ENABLE_SCHEDULER=true
 PRISM_HEARTBEAT_HOURS=6
 PRISM_AGENT_QUERY=multimodal agents
@@ -157,114 +259,34 @@ PRISM_SOUL_PROFILE_PATH=app/agent/soul_profile.yaml
 DISCORD_WEBHOOK_URL=
 ```
 
-Start the backend normally:
+The default mock channel records delivery attempts in memory. Discord delivery can be enabled by adding `discord` to the SOUL profile channel list and setting `DISCORD_WEBHOOK_URL`.
+
+## Why It Is Hackathon-Ready
+
+- End-to-end full stack application.
+- Multi-source ingestion instead of a single-source scraper.
+- Deterministic fallback scoring when LLMs are disabled.
+- Groq-first LLM path with local Ollama fallback.
+- No secret keys committed.
+- Offline demo mode through fallback data and mock signals.
+- Clear APIs for judging and integration.
+- Dashboard designed for live presentation, not just raw API output.
+
+## Verification
+
+Commands used during cleanup:
 
 ```bash
-uvicorn app.main:app --reload
+cd backend
+python -m compileall app
+
+cd ../frontend
+npm run lint
 ```
 
-When enabled, APScheduler runs the heartbeat on startup and then every `PRISM_HEARTBEAT_HOURS` hours. Each heartbeat loads the SOUL profile, runs ingestion for monitored topics, performs entity linking and memory indexing through the existing ingestion pipeline, runs persisted engine analysis, routes each signal as `alert`, `daily_digest`, `weekly_brief`, or `ignored_memory_update`, and dispatches routed items to configured channels. It uses the FastAPI process only; no Celery, Redis, or worker service is required.
+## Notes
 
-Agent endpoints:
-
-- `GET /api/agent/status`: returns scheduler enabled state, current status, last run, next run, run count, details, and errors.
-- `GET /api/agent/profile`: returns the loaded SOUL profile.
-- `POST /api/agent/profile/reload`: reloads the YAML profile from disk.
-- `POST /api/agent/run-once`: manually runs one heartbeat using the same env configuration.
-- `GET /api/agent/alerts`: returns in-memory alerts, decisions, and delivery attempts.
-
-Default SOUL profile:
-
-```yaml
-name: PRISM Research Agent
-monitor_topics:
-  - multimodal agents
-  - AI evaluation
-thresholds:
-  alert_prism_score: 0.82
-  digest_prism_score: 0.65
-  weekly_brief_prism_score: 0.45
-  min_trust_score: 0.35
-channels:
-  alerts:
-    - mock
-  daily_digest:
-    - mock
-  weekly_brief:
-    - mock
-report_frequency:
-  daily_digest_hour_utc: 15
-  weekly_brief_day: monday
-  weekly_brief_hour_utc: 15
-```
-
-The `mock` channel records delivery attempts in memory. To enable Discord delivery, add `discord` to the relevant channel list in `backend/app/agent/soul_profile.yaml` and set `DISCORD_WEBHOOK_URL` in `.env`. Secrets are read only from environment configuration.
-
-## Key API Contracts
-
-### Normalized Research Item
-
-```json
-{
-  "id": "string",
-  "title": "string",
-  "abstract": "string",
-  "source": "arxiv|github|huggingface|news|mock_social|mock_jobs",
-  "url": "string",
-  "authors": ["string"],
-  "organizations": ["string"],
-  "topic": "string",
-  "timestamp": "ISO datetime",
-  "metadata": {}
-}
-```
-
-### Fusion Report
-
-```json
-{
-  "item_id": "string",
-  "prism_score": 0.0,
-  "novelty_score": 0.0,
-  "trust_score": 0.0,
-  "controversy_score": 0.0,
-  "adoption_gap_score": 0.0,
-  "transferability_score": 0.0,
-  "verdict": "string",
-  "evidence": ["string"]
-}
-```
-
-## Environment Variables
-
-See `backend/.env.example`.
-
-Important variables:
-
-- `DATABASE_URL`: defaults to local SQLite.
-- `GITHUB_TOKEN`: optional, improves GitHub rate limit.
-- `HUGGINGFACE_TOKEN`: optional.
-- `NEWS_RSS_FEEDS`: comma-separated RSS feed list.
-- `ENGINEERING_BLOG_RSS_FEEDS`: comma-separated engineering blog RSS feeds.
-- `PAPERS_WITH_CODE_API_URL`: optional Papers With Code API base URL. The adapter fails safe and returns no items if the endpoint is unavailable.
-- `CROSSREF_MAILTO`: optional email for Crossref polite-pool requests.
-- `ENABLE_LLM`: reserved for future engine integration.
-- `LLM_API_KEY`: reserved for future engine integration.
-- `ENABLE_SCHEDULER`: set to `true` to start the APScheduler heartbeat.
-- `PRISM_HEARTBEAT_HOURS`: heartbeat interval in hours, minimum effective value is 1.
-- `PRISM_AGENT_QUERY`: research query used by scheduled and manual agent runs.
-- `PRISM_AGENT_LIMIT_PER_SOURCE`: per-source ingestion limit for agent runs.
-- `PRISM_AGENT_INCLUDE_DEMO`: include seeded demo data in agent runs.
-- `PRISM_SOUL_PROFILE_PATH`: YAML profile path, relative to `backend/` unless absolute.
-- `DISCORD_WEBHOOK_URL`: optional Discord webhook for agent delivery.
-
-## Notes for the Team
-
-- The backend works offline because seeded demo data is included.
-- Every ingestion adapter fails safe and returns an empty list on network or parsing errors.
-- Twitter/X and LinkedIn are intentionally mocked to avoid scraping/API issues.
-- Product launches are mocked for demo mode, so no Product Hunt API key is required.
-- `/api/analysis/fusion-reports` now uses the real Signal, Trust, Debate, Gap, Cross-Domain, and Fusion engines.
-- `/api/agent/status` and `/api/agent/run-once` expose the always-on research loop.
-- The frontend is a polished PRISM command center with pipeline trigger, ranked queue, score cards, source constellation, charts, detail panel, evidence trace, entity links, and Markdown report export.
-- Expansion and OpenClaw integration prompts are in `docs/EXPANSION_OPENCLAW_PROMPTS.md`.
+- Some public APIs may rate-limit or return zero results for narrow queries. The pipeline logs per-source results and continues with sources that succeed.
+- Chroma and SQLite are local development persistence layers.
+- The current default Groq model is `llama-3.1-8b-instant` to reduce credit usage.
+- `.env`, virtual environments, build outputs, and local database files are ignored.

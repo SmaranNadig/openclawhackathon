@@ -19,6 +19,8 @@ def apply_item_search_filter(query: Query, search: str | None) -> Query:
         query = query.filter(
             or_(
                 ResearchItem.title.ilike(pattern),
+                ResearchItem.topic.ilike(pattern),
+                ResearchItem.source.ilike(pattern),
                 ResearchItem.abstract.ilike(pattern),
                 ResearchItem.url.ilike(pattern),
                 ResearchItem.authors.cast(String).ilike(pattern),

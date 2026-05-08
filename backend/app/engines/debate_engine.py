@@ -20,7 +20,7 @@ CONTRADICTION_TERMS = {
 
 
 class DebateEngine:
-    def score(self, item: ResearchItem, related_items: list[ResearchItem], links: list[EntityLink]) -> EngineResult:
+    def score(self, item: ResearchItem, related_items: list[ResearchItem], links: list[EntityLink], skip_llm: bool = False) -> EngineResult:
         blob = text_blob(item)
         evidence: list[str] = []
         direct_hits = [term for term in CONTRADICTION_TERMS if term in blob]
@@ -52,15 +52,16 @@ class DebateEngine:
         else:
             verdict = "Low debate risk: no major contradiction cluster found yet."
 
-        verdict, evidence = enhance_verdict(
-            engine_name="DebateEngine",
-            heuristic_verdict=verdict,
-            heuristic_score=score,
-            item_title=item.title,
-            item_abstract=item.abstract or "",
-            evidence_points=evidence,
-            extra_context=f"related_items={len(related_items)}, links={len(links)}",
-        )
+        if not skip_llm:
+            verdict, evidence = enhance_verdict(
+                engine_name="DebateEngine",
+                heuristic_verdict=verdict,
+                heuristic_score=score,
+                item_title=item.title,
+                item_abstract=item.abstract or "",
+                evidence_points=evidence,
+                extra_context=f"related_items={len(related_items)}, links={len(links)}",
+            )
 
         return EngineResult(
             score=round(score, 4),

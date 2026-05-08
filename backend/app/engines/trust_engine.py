@@ -5,7 +5,7 @@ from app.engines.utils import has_any_url, text_blob
 
 
 class TrustEngine:
-    def score(self, item: ResearchItem, signals: list[SourceSignal]) -> EngineResult:
+    def score(self, item: ResearchItem, signals: list[SourceSignal], skip_llm: bool = False) -> EngineResult:
         metadata = item.extra_metadata or {}
         blob = text_blob(item)
         evidence: list[str] = []
@@ -52,15 +52,16 @@ class TrustEngine:
         else:
             verdict = "Low trust: insufficient reproducibility evidence."
 
-        verdict, evidence = enhance_verdict(
-            engine_name="TrustEngine",
-            heuristic_verdict=verdict,
-            heuristic_score=score,
-            item_title=item.title,
-            item_abstract=item.abstract or "",
-            evidence_points=evidence,
-            extra_context=f"source={item.source}, metadata_keys={sorted(metadata.keys())}",
-        )
+        if not skip_llm:
+            verdict, evidence = enhance_verdict(
+                engine_name="TrustEngine",
+                heuristic_verdict=verdict,
+                heuristic_score=score,
+                item_title=item.title,
+                item_abstract=item.abstract or "",
+                evidence_points=evidence,
+                extra_context=f"source={item.source}, metadata_keys={sorted(metadata.keys())}",
+            )
 
         return EngineResult(
             score=round(score, 4),

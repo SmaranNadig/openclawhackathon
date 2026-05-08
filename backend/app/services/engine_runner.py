@@ -120,12 +120,12 @@ def run_and_persist_engines(
         related_signals = db.query(SourceSignal).filter(SourceSignal.item_id == related.id).all()
         signals.extend(related_signals)
 
-    # --- run individual engines (once only) ---------------------------------
-    signal_result = SignalEngine().score(item, signals)
-    trust_result = TrustEngine().score(item, signals)
-    debate_result = DebateEngine().score(item, related_items, links)
-    gap_result = GapEngine().score(item, signals, related_items)
-    cross_domain_result = CrossDomainEngine().score(item, related_items)
+    # --- run individual engines (Fast Heuristics Only) -----------------------
+    signal_result = SignalEngine().score(item, signals, skip_llm=True)
+    trust_result = TrustEngine().score(item, signals, skip_llm=True)
+    debate_result = DebateEngine().score(item, related_items, links, skip_llm=True)
+    gap_result = GapEngine().score(item, signals, related_items, skip_llm=True)
+    cross_domain_result = CrossDomainEngine().score(item, related_items, skip_llm=True)
 
     # --- persist EngineRun -------------------------------------------------
     engine_run = EngineRun(
@@ -177,20 +177,32 @@ def run_and_persist_engines(
         evidence.extend(r.evidence[:3])
     evidence = evidence[:17]
 
-    # --- Call OpenClaw Agent Service ----------------------------------------
+    # --- Call OpenClaw Agent Service (Hybrid Trigger) -----------------------
     from app.agent.openclaw_client import analyze as openclaw_analyze
+    from app.agent.openclaw_client import _fallback
 
-    openclaw_result = openclaw_analyze(
-        title=item.title or "",
-        abstract=item.abstract or "",
-        scores={
+    # Only use Master LLM (OpenClaw) for items that look interesting (>0.4)
+    if heuristic_prism >= 0.4:
+        openclaw_result = openclaw_analyze(
+            title=item.title or "",
+            abstract=item.abstract or "",
+            scores={
+                "trust": trust_result.score,
+                "novelty": signal_result.score,
+                "gap": gap_result.score,
+                "cross_domain": cross_domain_result.score,
+                "controversy": debate_result.score,
+            },
+        )
+    else:
+        # Fast path for background items
+        openclaw_result = _fallback({
             "trust": trust_result.score,
             "novelty": signal_result.score,
             "gap": gap_result.score,
             "cross_domain": cross_domain_result.score,
             "controversy": debate_result.score,
-        },
-    )
+        })
 
     # Use OpenClaw's refined score and verdict
     prism_score = openclaw_result.prism_score

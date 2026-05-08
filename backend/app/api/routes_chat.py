@@ -9,6 +9,7 @@ with citations. Context is built from:
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -50,6 +51,35 @@ class ChatResponse(BaseModel):
     question: str
 
 
+def _score_text(value: float | None) -> str:
+    return f"{value:.2f}" if value is not None else "N/A"
+
+
+def _plain_text_answer(raw: str) -> str:
+    """Convert accidental JSON model output into user-readable prose."""
+    text = raw.strip()
+    if not (text.startswith("{") and text.endswith("}")):
+        return text
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+
+    for key in ("answer", "response", "summary", "verdict"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    parts: list[str] = []
+    for key, value in data.items():
+        if isinstance(value, str) and value.strip():
+            parts.append(f"**{key.replace('_', ' ').title()}**: {value.strip()}")
+        elif isinstance(value, list) and value:
+            rendered = "; ".join(str(item) for item in value[:5])
+            parts.append(f"**{key.replace('_', ' ').title()}**: {rendered}")
+    return "\n\n".join(parts) if parts else text
+
+
 def _build_context(db: Session, request: ChatRequest) -> tuple[str, list[ChatCitation]]:
     """Build RAG context from memory search + optional focused item."""
     citations: list[ChatCitation] = []
@@ -72,7 +102,7 @@ def _build_context(db: Session, request: ChatRequest) -> tuple[str, list[ChatCit
                 f"Source: {item.source}\n"
                 f"Authors: {', '.join(item.authors[:5])}\n"
                 f"Abstract: {item.abstract}\n"
-                f"PRISM Score: {report.prism_score:.2f if report else 'N/A'}\n"
+                f"PRISM Score: {_score_text(report.prism_score if report else None)}\n"
                 f"Verdict: {report.verdict if report else 'N/A'}\n"
             )
             citations.append(ChatCitation(
@@ -159,7 +189,8 @@ CHAT_SYSTEM_PROMPT = (
     "You are PRISM's research assistant. You answer questions about scientific papers "
     "using ONLY the provided context. If the context doesn't contain enough information "
     "to answer, say so honestly. Always cite which paper(s) support your answer. "
-    "Be concise, technical, and actionable. Use markdown formatting."
+    "Be concise, technical, and actionable. Use normal English with light markdown. "
+    "Do not return JSON, XML, code fences, or a machine-readable object."
 )
 
 
@@ -181,11 +212,12 @@ def chat_with_papers(request: ChatRequest, db: Session = Depends(get_db)) -> Cha
     user_prompt = (
         f"Context papers:\n{context}\n\n"
         f"User question: {request.question}\n\n"
-        "Answer the question using the context above. Cite paper titles when referencing them."
+        "Answer in normal English using the context above. Cite paper titles when referencing them. "
+        "Do not output JSON."
     )
 
     answer, provider = ask_llm_with_provider(
-        CHAT_SYSTEM_PROMPT, user_prompt, max_tokens=600, temperature=0.25,
+        CHAT_SYSTEM_PROMPT, user_prompt, max_tokens=450, temperature=0.25, structured=False,
     )
 
     if not answer:
@@ -197,6 +229,8 @@ def chat_with_papers(request: ChatRequest, db: Session = Depends(get_db)) -> Cha
             "Enable an LLM provider (Groq or Ollama) for detailed AI-powered answers."
         )
         provider = "heuristic"
+    else:
+        answer = _plain_text_answer(answer)
 
     return ChatResponse(
         answer=answer,
@@ -230,13 +264,13 @@ def debate_papers(
     context = (
         f"[PAPER A]\n"
         f"Title: {item_a.title}\nTopic: {item_a.topic}\nAbstract: {item_a.abstract}\n"
-        f"PRISM Score: {report_a.prism_score:.2f if report_a else 'N/A'}\n"
-        f"Trust: {report_a.trust_score:.2f if report_a else 'N/A'}\n"
+        f"PRISM Score: {_score_text(report_a.prism_score if report_a else None)}\n"
+        f"Trust: {_score_text(report_a.trust_score if report_a else None)}\n"
         f"Verdict: {report_a.verdict if report_a else 'N/A'}\n\n"
         f"[PAPER B]\n"
         f"Title: {item_b.title}\nTopic: {item_b.topic}\nAbstract: {item_b.abstract}\n"
-        f"PRISM Score: {report_b.prism_score:.2f if report_b else 'N/A'}\n"
-        f"Trust: {report_b.trust_score:.2f if report_b else 'N/A'}\n"
+        f"PRISM Score: {_score_text(report_b.prism_score if report_b else None)}\n"
+        f"Trust: {_score_text(report_b.trust_score if report_b else None)}\n"
         f"Verdict: {report_b.verdict if report_b else 'N/A'}\n"
     )
 
@@ -245,11 +279,11 @@ def debate_papers(
         "Structure your response as:\n"
         "## Paper A Strengths\n## Paper B Strengths\n"
         "## Key Differences\n## Verdict\n"
-        "Be specific and cite data points from the abstracts."
+        "Be specific and cite data points from the abstracts. Do not output JSON."
     )
     prompt = f"Compare these two papers:\n\n{context}"
 
-    answer, provider = ask_llm_with_provider(system, prompt, max_tokens=600, temperature=0.3)
+    answer, provider = ask_llm_with_provider(system, prompt, max_tokens=450, temperature=0.3, structured=False)
 
     if not answer:
         sa = report_a.prism_score if report_a else 0
@@ -262,6 +296,8 @@ def debate_papers(
             "Enable Groq or Ollama for a detailed AI-powered debate analysis."
         )
         provider = "heuristic"
+    else:
+        answer = _plain_text_answer(answer)
 
     citations = [
         ChatCitation(item_id=item_a.id, title=item_a.title, url=item_a.url, relevance=1.0),

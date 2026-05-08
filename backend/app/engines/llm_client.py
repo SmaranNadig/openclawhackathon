@@ -25,12 +25,16 @@ from app.core.config import get_settings
 
 logger = logging.getLogger("prism.engines.llm")
 
-MODELS = [
-    "llama-3.3-70b-versatile",
+DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
+ACTIVE_GROQ_FALLBACK_MODELS = [
+    DEFAULT_GROQ_MODEL,
+]
+DECOMMISSIONED_GROQ_MODELS = {
     "llama-3.1-70b-versatile",
     "llama3-70b-8192",
+    "llama3-8b-8192",
     "mixtral-8x7b-32768",
-]
+}
 
 # ---------------------------------------------------------------------------
 # Response cache
@@ -139,9 +143,10 @@ def ask_llm(
     *,
     max_tokens: int = 300,
     temperature: float = 0.2,
+    structured: bool = False,
 ) -> str | None:
     text, _ = ask_llm_with_provider(
-        system_prompt, user_prompt, max_tokens=max_tokens, temperature=temperature
+        system_prompt, user_prompt, max_tokens=max_tokens, temperature=temperature, structured=structured
     )
     return text
 
@@ -152,29 +157,37 @@ def ask_llm_with_provider(
     *,
     max_tokens: int = 300,
     temperature: float = 0.2,
+    structured: bool = False,
 ) -> tuple[str | None, str]:
     settings = get_settings()
     client = _get_client()
 
-    # 1. Primary: Try Ollama (local) first
-    ollama_text = _ask_ollama(system_prompt, user_prompt, max_tokens=max_tokens, temperature=temperature)
-    if ollama_text:
-        return ollama_text, "ollama"
-
-    # 2. Fallback: Try Groq (API)
+    # 1. Primary: Try Groq (API) for maximum speed and better PRISM scores
     if client is not None:
-        model_priority = [settings.llm_model] + [m for m in MODELS if m != settings.llm_model]
+        # Respect Groq free tier RPM limits
+        time.sleep(1.2)
+        configured_model = settings.llm_model or DEFAULT_GROQ_MODEL
+        if configured_model in DECOMMISSIONED_GROQ_MODELS:
+            logger.warning("Configured Groq model %s is decommissioned; using %s.", configured_model, DEFAULT_GROQ_MODEL)
+            configured_model = DEFAULT_GROQ_MODEL
+        model_priority = [configured_model] + [
+            model for model in ACTIVE_GROQ_FALLBACK_MODELS if model != configured_model
+        ]
         for model in model_priority:
             try:
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=[
+                request: dict[str, Any] = {
+                    "model": model,
+                    "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    response_format={"type": "json_object"},  # Groq supports this for Llama 3
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                }
+                if structured:
+                    request["response_format"] = {"type": "json_object"}
+                response = client.chat.completions.create(
+                    **request,
                 )
                 text = response.choices[0].message.content
                 if text:
@@ -182,6 +195,13 @@ def ask_llm_with_provider(
                     return text.strip(), "groq_api"
             except Exception as exc:
                 logger.warning("API model %s failed: %s; trying next", model, exc)
+
+    # 2. Fallback: Try Ollama (local) if API is unavailable or disabled
+    ollama_text = _ask_ollama(
+        system_prompt, user_prompt, max_tokens=max_tokens, temperature=temperature, structured=structured
+    )
+    if ollama_text:
+        return ollama_text, "ollama"
 
     logger.warning("All LLM providers failed; falling back to heuristic verdict.")
     return None, "heuristic"
@@ -193,6 +213,7 @@ def _ask_ollama(
     *,
     max_tokens: int,
     temperature: float,
+    structured: bool,
 ) -> str | None:
     settings = get_settings()
     if not settings.enable_llm:
@@ -205,13 +226,12 @@ def _ask_ollama(
             json={
                 "model": settings.ollama_model,
                 "stream": False,
-                "format": "json",
                 "options": {"temperature": temperature, "num_predict": max_tokens},
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-            },
+            } | ({"format": "json"} if structured else {}),
             timeout=30.0,
         )
         if response.status_code == 200:
@@ -233,10 +253,9 @@ def _ask_ollama(
             json={
                 "model": settings.ollama_model,
                 "stream": False,
-                "format": "json",
                 "options": {"temperature": temperature, "num_predict": max_tokens},
                 "prompt": combined_prompt,
-            },
+            } | ({"format": "json"} if structured else {}),
             timeout=30.0,
         )
         if response.status_code == 200:
@@ -403,7 +422,8 @@ def enhance_verdict_batch(items: list[_BatchItem]) -> list[EnhancedResult]:
     raw, provider = ask_llm_with_provider(
         SYSTEM_PROMPT, 
         batch_prompt, 
-        max_tokens=300 * len(pending_items)
+        max_tokens=300 * len(pending_items),
+        structured=True,
     )
 
     if raw is not None:

@@ -9,7 +9,7 @@ INDUSTRY_SOURCES = {"news", "mock_jobs"}
 
 
 class GapEngine:
-    def score(self, item: ResearchItem, signals: list[SourceSignal], related_items: list[ResearchItem]) -> EngineResult:
+    def score(self, item: ResearchItem, signals: list[SourceSignal], related_items: list[ResearchItem], skip_llm: bool = False) -> EngineResult:
         totals = signal_totals(signals)
         academic_momentum = 0.0
         if item.source in ACADEMIC_SOURCES:
@@ -43,15 +43,16 @@ class GapEngine:
         else:
             verdict = "Small adoption gap: industry signal is already visible or research momentum is still early."
 
-        verdict, evidence = enhance_verdict(
-            engine_name="GapEngine",
-            heuristic_verdict=verdict,
-            heuristic_score=gap_score,
-            item_title=item.title,
-            item_abstract=item.abstract or "",
-            evidence_points=evidence,
-            extra_context=f"source={item.source}, academic_momentum={academic_momentum:.4f}, industry_signal={industry_signal:.4f}",
-        )
+        if not skip_llm:
+            verdict, evidence = enhance_verdict(
+                engine_name="GapEngine",
+                heuristic_verdict=verdict,
+                heuristic_score=gap_score,
+                item_title=item.title,
+                item_abstract=item.abstract or "",
+                evidence_points=evidence,
+                extra_context=f"source={item.source}, academic_momentum={academic_momentum:.4f}, industry_signal={industry_signal:.4f}",
+            )
 
         return EngineResult(
             score=round(gap_score, 4),

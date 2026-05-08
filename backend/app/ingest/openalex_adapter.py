@@ -3,6 +3,7 @@ from typing import Any
 
 import requests
 
+from app.core.config import get_settings
 from app.ingest.base import IngestionAdapter
 
 
@@ -10,12 +11,16 @@ class OpenAlexAdapter(IngestionAdapter):
     source_name = "openalex"
 
     def fetch(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        settings = get_settings()
         params = {
             "search": query,
             "per_page": min(limit, 20),
             "select": "id,display_name,abstract_inverted_index,doi,publication_date,authorships,cited_by_count,concepts",
         }
-        headers = {"User-Agent": "PRISM Research Agent (mailto:research@example.com)"}
+        
+        # Use mailto for OpenAlex "polite pool" if available
+        mailto = settings.crossref_mailto or "research@example.com"
+        headers = {"User-Agent": f"PRISM Research Agent (mailto:{mailto})"}
         
         try:
             response = requests.get(
